@@ -129,15 +129,15 @@ const SHOOT_DAYS: Array<Omit<ShootDayRow, 'revision' | 'createdAt' | 'updatedAt'
 ]
 
 const RECORDS: Array<Omit<RecordRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
-  { id: 'rec-001', shootDayId: 'sd-001', elementId: 'el-001', sceneId: 'sc-001', takeNo: '3/1', currentState: '深蓝风衣，第二颗扣子缺失', photoNote: '正面全身', recordedBy: '苏晚' },
-  { id: 'rec-002', shootDayId: 'sd-001', elementId: 'el-002', sceneId: 'sc-001', takeNo: '3/1', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写', recordedBy: '苏晚' },
-  { id: 'rec-003', shootDayId: 'sd-001', elementId: 'el-003', sceneId: 'sc-001', takeNo: '3/1', currentState: '低盘发，右侧留碎发', photoNote: '侧脸发际', recordedBy: '苏晚' },
-  { id: 'rec-004', shootDayId: 'sd-002', elementId: 'el-001', sceneId: 'sc-001', takeNo: '7/2', currentState: '深蓝风衣，第三颗扣子缺失', photoNote: '正面全身（补）', recordedBy: '苏晚' },
-  { id: 'rec-005', shootDayId: 'sd-002', elementId: 'el-002', sceneId: 'sc-001', takeNo: '7/2', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写（第二次）', recordedBy: '苏晚' },
-  { id: 'rec-006', shootDayId: 'sd-002', elementId: 'el-003', sceneId: 'sc-001', takeNo: '7/2', currentState: '高马尾，无碎发', photoNote: '侧脸发际', recordedBy: '苏晚' },
-  { id: 'rec-007', shootDayId: 'sd-002', elementId: 'el-006', sceneId: 'sc-003', takeNo: '7/5', currentState: '全家福相框右下角卷边', photoNote: '墙面全景', recordedBy: '苏晚' },
-  { id: 'rec-008', shootDayId: 'sd-003', elementId: 'el-004', sceneId: 'sc-002', takeNo: '9/1', currentState: '编号 A-17 木箱，右上角有破损', photoNote: '木箱标识', recordedBy: '苏晚' },
-  { id: 'rec-009', shootDayId: 'sd-003', elementId: 'el-005', sceneId: 'sc-002', takeNo: '9/1', currentState: '深灰夹克，左袖有油污', photoNote: '男主半身', recordedBy: '苏晚' }
+  { id: 'rec-001', shootDayId: 'sd-001', elementId: 'el-001', sceneId: 'sc-001', takeNo: '3/1', currentState: '深蓝风衣，第二颗扣子缺失', photoNote: '正面全身', recordedBy: '苏晚', source: '场记台', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-002', shootDayId: 'sd-001', elementId: 'el-002', sceneId: 'sc-001', takeNo: '3/1', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写', recordedBy: '苏晚', source: '场记台', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-003', shootDayId: 'sd-001', elementId: 'el-003', sceneId: 'sc-001', takeNo: '3/1', currentState: '低盘发，右侧留碎发', photoNote: '侧脸发际', recordedBy: '苏晚', source: '场记台', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-004', shootDayId: 'sd-002', elementId: 'el-001', sceneId: 'sc-001', takeNo: '7/2', currentState: '深蓝风衣，第三颗扣子缺失', photoNote: '正面全身（补）', recordedBy: '苏晚', source: '标签页 A', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-005', shootDayId: 'sd-002', elementId: 'el-002', sceneId: 'sc-001', takeNo: '7/2', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写（第二次）', recordedBy: '苏晚', source: '标签页 A', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-006', shootDayId: 'sd-002', elementId: 'el-003', sceneId: 'sc-001', takeNo: '7/2', currentState: '高马尾，无碎发', photoNote: '侧脸发际', recordedBy: '苏晚', source: '标签页 A', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-007', shootDayId: 'sd-002', elementId: 'el-006', sceneId: 'sc-003', takeNo: '7/5', currentState: '全家福相框右下角卷边', photoNote: '墙面全景', recordedBy: '苏晚', source: '标签页 A', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-008', shootDayId: 'sd-003', elementId: 'el-004', sceneId: 'sc-002', takeNo: '9/1', currentState: '编号 A-17 木箱，右上角有破损', photoNote: '木箱标识', recordedBy: '苏晚', source: '标签页 B', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' },
+  { id: 'rec-009', shootDayId: 'sd-003', elementId: 'el-005', sceneId: 'sc-002', takeNo: '9/1', currentState: '深灰夹克，左袖有油污', photoNote: '男主半身', recordedBy: '苏晚', source: '标签页 B', status: '生效', duelGroupId: '', duelWinner: '', submissionId: '' }
 ]
 
 const CONFLICTS: Array<Omit<ConflictRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
@@ -150,7 +150,8 @@ const CONFLICTS: Array<Omit<ConflictRow, 'revision' | 'createdAt' | 'updatedAt'>
     severity: '阻断',
     state: '待确认',
     resolvedNote: '',
-    resolvedAt: ''
+    resolvedAt: '',
+    source: '自动重算'
   },
   {
     id: 'cf-002',
@@ -161,7 +162,8 @@ const CONFLICTS: Array<Omit<ConflictRow, 'revision' | 'createdAt' | 'updatedAt'>
     severity: '需处理',
     state: '已解决',
     resolvedNote: '已按第 7 场重新盘发并补拍侧脸特写',
-    resolvedAt: '2024-05-08T02:10:00.000Z'
+    resolvedAt: '2024-05-08T02:10:00.000Z',
+    source: '自动重算'
   },
   {
     id: 'cf-003',
@@ -172,7 +174,8 @@ const CONFLICTS: Array<Omit<ConflictRow, 'revision' | 'createdAt' | 'updatedAt'>
     severity: '轻微',
     state: '待确认',
     resolvedNote: '',
-    resolvedAt: ''
+    resolvedAt: '',
+    source: '自动重算'
   }
 ]
 

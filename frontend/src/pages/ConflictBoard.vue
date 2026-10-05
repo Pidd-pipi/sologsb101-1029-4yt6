@@ -85,14 +85,14 @@ const totals = computed(() => {
   }
 })
 
-/** 重新比对：把当前所有要素最近两次记录的差异写入差异表（已存在的不重复生成） */
+/** 全量重新比对：自动差异失效后按当前生效记录重建（手工登记条目不被替换） */
 async function regenerate(): Promise<void> {
   if (diff.candidates.value.length === 0) {
-    ElMessage.info('当前没有可生成的差异（每个要素至少需要两次现场记录）')
+    ElMessage.info('当前没有可比对的生效记录（每个要素至少需要两次现场记录，并列待确认需先裁决）')
     return
   }
-  const created = await store.generate(diff.candidates.value)
-  ElMessage.success(created > 0 ? `本次新生成 ${created} 条差异` : '差异已是新的，无需重复生成')
+  const count = await store.regenerateAll()
+  ElMessage.success(count > 0 ? `已按最新生效记录重算，当前自动差异 ${count} 条` : '重算完成：当前没有自动差异条目')
 }
 
 async function resolve(conflict: ConflictRow): Promise<void> {
@@ -198,6 +198,11 @@ watch(
         </template>
       </el-table-column>
       <el-table-column prop="diffDesc" label="差异描述" min-width="240" />
+      <el-table-column label="来源" width="100">
+        <template #default="{ row }">
+          <el-tag size="small" :type="row.source === '手工登记' ? 'warning' : 'info'" effect="plain">{{ row.source }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="严重程度 / 状态" width="170">
         <template #default="{ row }">
           <ConflictTag :severity="row.severity" :state="row.state" />

@@ -22,11 +22,16 @@ export interface Conflict {
   resolvedNote: string
   /** 解决时间（ISO，未解决为空串） */
   resolvedAt: string
+  /** 来源：批次合入后自动重算 / 手工登记（自动条目在重算时会被整体替换） */
+  source: ConflictSource
 }
+
+/** 差异来源 */
+export type ConflictSource = '自动重算' | '手工登记'
 
 export const CONFLICT_SEVERITIES: ConflictSeverity[] = ['轻微', '需处理', '阻断']
 export const CONFLICT_STATES: ConflictState[] = ['待确认', '已解决']
 
 export function createEmptyConflict(): Omit<Conflict, 'id' | 'resolvedNote' | 'resolvedAt'> {
-  return { elementId: '', recordIdA: '', recordIdB: '', diffDesc: '', severity: '轻微', state: '待确认' }
+  return { elementId: '', recordIdA: '', recordIdB: '', diffDesc: '', severity: '轻微', state: '待确认', source: '手工登记' }
 }

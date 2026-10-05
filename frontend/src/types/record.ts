@@ -17,7 +17,13 @@ export interface Record {
   recordedBy: string
 }
 
-export function createEmptyRecord(): Omit<Record, 'id'> {
+/** 记录生命周期状态：生效 / 待确认（与另一版本并列待裁决） / 已作废（裁决落败） */
+export type RecordLifecycle = '生效' | '待确认' | '已作废'
+
+/** 编辑表单使用的字段 */
+export type RecordFields = Omit<Record, 'id'>
+
+export function createEmptyRecord(): RecordFields {
   return {
     shootDayId: '',
     elementId: '',
@@ -27,4 +33,9 @@ export function createEmptyRecord(): Omit<Record, 'id'> {
     photoNote: '',
     recordedBy: ''
   }
+}
+
+/** 同一拍摄日下一条记录的业务键：同一镜次同一要素只允许有一条生效记录 */
+export function recordBusinessKey(record: Pick<Record, 'shootDayId' | 'elementId' | 'takeNo'>): string {
+  return `${record.shootDayId}::${record.elementId}::${record.takeNo}`
 }

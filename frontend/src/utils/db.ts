@@ -1,7 +1,7 @@
 /**
  * IndexedDB 持久化层（Dexie 封装）
- * - 数据库名 gbcontinuity-db，数据结构版本号 version(1) 与 upgrade() 迁移逻辑
- * - 场次 / 连戏要素 / 拍摄日 / 现场记录 / 连戏差异 五张表分表存储
+ * - 数据库名 gbcontinuity-db，数据结构版本号 version(2) 与逐版本 upgrade() 迁移逻辑
+ * - 场次 / 连戏要素 / 拍摄日 / 现场记录 / 连戏差异 / 提交批次 六张表分表存储
  * - 首次打开自动播种互相引用的演示数据（含未解决冲突），保证每个页面打开都有内容
  */
 import Dexie, { type Table } from 'dexie'
@@ -9,8 +9,9 @@ import { toRaw } from 'vue'
 import type { Scene } from '../types/scene'
 import type { Element } from '../types/element'
 import type { ShootDay } from '../types/shootDay'
-import type { Record as ContinuityRecord } from '../types/record'
-import type { Conflict } from '../types/conflict'
+import type { Record as ContinuityRecord, RecordLifecycle } from '../types/record'
+import type { Conflict, ConflictSource } from '../types/conflict'
+import type { Submission } from '../types/submission'
 import { nowIso } from './uuid'
 import { seedDatabase } from './seed'
 
@@ -18,10 +19,13 @@ import { seedDatabase } from './seed'
 export const DB_NAME = 'gbcontinuity-db'
 
 /** 当前数据结构版本号（每次调整字段结构必须 +1 并补迁移） */
-export const DB_SCHEMA_VERSION = 1
+export const DB_SCHEMA_VERSION = 2
 
-/** 行结构修订号 */
+/** 行结构修订号：新行首版内容修订号，之后每次内容合入 +1 */
 export const ROW_REVISION = 1
+
+/** 旧数据升级时的来源标记 */
+export const LEGACY_SOURCE = '历史导入'
 
 /** 带时间戳与修订号的持久化实体 */
 export interface Revisioned {
@@ -33,8 +37,26 @@ export interface Revisioned {
 export type SceneRow = Scene & Revisioned
 export type ElementRow = Element & Revisioned
 export type ShootDayRow = ShootDay & Revisioned
-export type RecordRow = ContinuityRecord & Revisioned
+
+/** 现场记录持久化行：领域字段 + 修订 + 带基线并发控制元数据 */
+export type RecordRow = ContinuityRecord &
+  Revisioned & {
+    /** 来源标签：录入的标签页/终端标识 */
+    source: string
+    /** 生命周期：生效 / 待确认（并列版本） / 已作废（裁决落败） */
+    status: RecordLifecycle
+    /** 待确认并列分组 id（同业务键两个版本共享），未卷入为空串 */
+    duelGroupId: string
+    /** 并列裁决胜出方记录 id，未裁决为空串 */
+    duelWinner: string
+    /** 最近一次写入本行的提交批次 id */
+    submissionId: string
+  }
+
 export type ConflictRow = Conflict & Revisioned
+
+/** 提交批次持久化行（含可重试草稿） */
+export type SubmissionRow = Submission
 
 /**
  * 深度剥掉 Vue 响应式代理（Proxy），得到可被 IndexedDB 结构化克隆的普通对象。
@@ -63,11 +85,13 @@ class GbContinuityDatabase extends Dexie {
   shootDays!: Table<ShootDayRow, string>
   records!: Table<RecordRow, string>
   conflicts!: Table<ConflictRow, string>
+  submissions!: Table<SubmissionRow, string>
 
   constructor() {
     super(DB_NAME)
 
-    this.version(DB_SCHEMA_VERSION)
+    // v1 初始结构：五张业务表
+    this.version(1)
       .stores({
         scenes: 'id, sceneNo, place, timeOfDay, shootOrder, state, updatedAt',
         elements: 'id, sceneId, category, name, owner, critical, updatedAt',
@@ -76,7 +100,7 @@ class GbContinuityDatabase extends Dexie {
         conflicts: 'id, elementId, recordIdA, recordIdB, severity, state, updatedAt'
       })
       .upgrade(async (tx) => {
-        // 结构迁移：为历史行补齐行修订号与时间戳；新建库时各表为空，迁移天然幂等
+        // v1 结构迁移：为历史行补齐行修订号与时间戳；新建库时各表为空，迁移天然幂等
         const tableNames = ['scenes', 'elements', 'shootDays', 'records', 'conflicts']
         for (const name of tableNames) {
           await tx
@@ -88,6 +112,40 @@ class GbContinuityDatabase extends Dexie {
               if (typeof row.updatedAt !== 'number') row.updatedAt = row.createdAt
             })
         }
+      })
+
+    // v2：现场记录增加并发控制字段与状态索引、差异增加来源、新增提交批次表
+    this.version(2)
+      .stores({
+        scenes: 'id, sceneNo, place, timeOfDay, shootOrder, state, updatedAt',
+        elements: 'id, sceneId, category, name, owner, critical, updatedAt',
+        shootDays: 'id, date, director, scripty, updatedAt',
+        records: 'id, shootDayId, elementId, sceneId, takeNo, status, duelGroupId, updatedAt',
+        conflicts: 'id, elementId, recordIdA, recordIdB, severity, state, source, updatedAt',
+        submissions: 'id, shootDayId, state, updatedAt'
+      })
+      .upgrade(async (tx) => {
+        // 旧数据升级：历史记录全部视为生效版本，补齐修订、来源与并发字段
+        await tx
+          .table('records')
+          .toCollection()
+          .modify((row: Record<string, unknown>) => {
+            if (typeof row.revision !== 'number') row.revision = ROW_REVISION
+            if (typeof row.createdAt !== 'number') row.createdAt = Date.now()
+            if (typeof row.updatedAt !== 'number') row.updatedAt = row.createdAt
+            if (typeof row.source !== 'string' || !row.source) row.source = LEGACY_SOURCE
+            if (row.status !== '待确认' && row.status !== '已作废') row.status = '生效'
+            if (typeof row.duelGroupId !== 'string') row.duelGroupId = ''
+            if (typeof row.duelWinner !== 'string') row.duelWinner = ''
+            if (typeof row.submissionId !== 'string') row.submissionId = ''
+          })
+        // 旧差异补齐来源：统一标记为自动重算，下一次合入会整体替换为最新结果
+        await tx
+          .table('conflicts')
+          .toCollection()
+          .modify((row: Record<string, unknown>) => {
+            if (typeof row.source !== 'string' || !row.source) row.source = '自动重算'
+          })
       })
   }
 }
@@ -134,11 +192,12 @@ export async function nextShootOrder(): Promise<number> {
 
 /** 删除场次：级联删除其下要素、现场记录与差异 */
 export async function removeScene(id: string): Promise<void> {
-  await db.transaction('rw', [db.scenes, db.elements, db.records, db.conflicts], async () => {
+  await db.transaction('rw', [db.scenes, db.elements, db.records, db.conflicts, db.submissions], async () => {
     const elements = await db.elements.where('sceneId').equals(id).toArray()
     const elementIds = elements.map((item) => item.id)
     const records = await db.records.where('sceneId').equals(id).toArray()
     const recordIds = records.map((item) => item.id)
+    const shootDayIds = [...new Set(records.map((item) => item.shootDayId))]
     if (elementIds.length > 0) {
       await db.conflicts.where('elementId').anyOf(elementIds).delete()
     }
@@ -153,6 +212,7 @@ export async function removeScene(id: string): Promise<void> {
         day.updatedAt = Date.now()
       }
     })
+    if (shootDayIds.length > 0) await db.submissions.where('shootDayId').anyOf(shootDayIds).delete()
     await db.scenes.delete(id)
   })
 }
@@ -196,13 +256,14 @@ export async function updateShootDay(id: string, patch: Partial<ShootDay>): Prom
 }
 
 export async function removeShootDay(id: string): Promise<void> {
-  await db.transaction('rw', [db.shootDays, db.records, db.conflicts], async () => {
+  await db.transaction('rw', [db.shootDays, db.records, db.conflicts, db.submissions], async () => {
     const records = await db.records.where('shootDayId').equals(id).toArray()
     const recordIds = records.map((item) => item.id)
     if (recordIds.length > 0) {
       await db.conflicts.filter((item) => recordIds.includes(item.recordIdA) || recordIds.includes(item.recordIdB)).delete()
     }
     await db.records.where('shootDayId').equals(id).delete()
+    await db.submissions.where('shootDayId').equals(id).delete()
     await db.shootDays.delete(id)
   })
 }
@@ -224,9 +285,31 @@ export async function updateRecord(id: string, patch: Partial<ContinuityRecord>)
 
 export async function removeRecord(id: string): Promise<void> {
   await db.transaction('rw', [db.records, db.conflicts], async () => {
+    const target = await db.records.get(id)
     await db.conflicts.filter((item) => item.recordIdA === id || item.recordIdB === id).delete()
+    // 同要素的自动差异因删除而失效（最近两次记录组合变了），交给下一次合入重算；手工条目保留
+    if (target) {
+      await db.conflicts
+        .filter((item) => item.elementId === target.elementId && item.source === '自动重算')
+        .delete()
+    }
     await db.records.delete(id)
   })
+}
+
+/* ---------------------------- 提交批次 ---------------------------- */
+
+export async function listSubmissions(): Promise<SubmissionRow[]> {
+  const rows = await db.submissions.toArray()
+  return rows.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+export async function putSubmission(row: SubmissionRow): Promise<void> {
+  await db.submissions.put(toPlainRow(row))
+}
+
+export async function removeSubmission(id: string): Promise<void> {
+  await db.submissions.delete(id)
 }
 
 /* ---------------------------- 连戏差异 ---------------------------- */
@@ -237,28 +320,6 @@ export async function listConflicts(): Promise<ConflictRow[]> {
 
 export async function putConflict(row: ConflictRow): Promise<void> {
   await db.conflicts.put(toPlainRow(row))
-}
-
-/** 批量写入比对生成的差异条目（覆盖同一对记录上的旧条目） */
-export async function saveConflicts(rows: ConflictRow[]): Promise<number> {
-  let created = 0
-  await db.transaction('rw', [db.conflicts], async () => {
-    for (const row of rows) {
-      const exists = await db.conflicts
-        .filter(
-          (item) =>
-            item.elementId === row.elementId &&
-            item.recordIdA === row.recordIdA &&
-            item.recordIdB === row.recordIdB
-        )
-        .first()
-      if (!exists) {
-        await db.conflicts.put(toPlainRow(row))
-        created += 1
-      }
-    }
-  })
-  return created
 }
 
 /** 解决差异：写入解决留痕并回写要素的初始状态（以最新现场状态为准） */
@@ -337,45 +398,76 @@ function stamp<T>(row: T): T & Revisioned {
   return { ...row, revision: ROW_REVISION, createdAt: now, updatedAt: now }
 }
 
+/** 旧备份 / 历史行导入：补齐 v2 的并发控制字段，缺省视为已生效的历史版本 */
+function normalizeRecordRow(row: Partial<RecordRow>): RecordRow {
+  const stamped = stamp(row) as RecordRow
+  return {
+    ...stamped,
+    source: typeof row.source === 'string' && row.source ? row.source : LEGACY_SOURCE,
+    status: row.status === '待确认' || row.status === '已作废' ? row.status : '生效',
+    duelGroupId: typeof row.duelGroupId === 'string' ? row.duelGroupId : '',
+    duelWinner: typeof row.duelWinner === 'string' ? row.duelWinner : '',
+    submissionId: typeof row.submissionId === 'string' ? row.submissionId : ''
+  }
+}
+
+/** 旧备份导入：差异缺少来源时标记为自动重算 */
+function normalizeConflictRow(row: Partial<ConflictRow>): ConflictRow {
+  const stamped = stamp(row) as ConflictRow
+  const source: ConflictSource = row.source === '手工登记' ? '手工登记' : '自动重算'
+  return { ...stamped, source }
+}
+
 export async function importSnapshot(snapshot: DatabaseSnapshot): Promise<void> {
-  await db.transaction('rw', [db.scenes, db.elements, db.shootDays, db.records, db.conflicts], async () => {
-    await Promise.all([
-      db.scenes.clear(),
-      db.elements.clear(),
-      db.shootDays.clear(),
-      db.records.clear(),
-      db.conflicts.clear()
-    ])
-    await db.scenes.bulkPut(snapshot.scenes.map(stamp))
-    await db.elements.bulkPut(snapshot.elements.map(stamp))
-    await db.shootDays.bulkPut(snapshot.shootDays.map(stamp))
-    await db.records.bulkPut(snapshot.records.map(stamp))
-    await db.conflicts.bulkPut(snapshot.conflicts.map(stamp))
-  })
+  await db.transaction(
+    'rw',
+    [db.scenes, db.elements, db.shootDays, db.records, db.conflicts, db.submissions],
+    async () => {
+      await Promise.all([
+        db.scenes.clear(),
+        db.elements.clear(),
+        db.shootDays.clear(),
+        db.records.clear(),
+        db.conflicts.clear(),
+        db.submissions.clear()
+      ])
+      await db.scenes.bulkPut(snapshot.scenes.map(stamp))
+      await db.elements.bulkPut(snapshot.elements.map(stamp))
+      await db.shootDays.bulkPut(snapshot.shootDays.map(stamp))
+      await db.records.bulkPut((snapshot.records as Array<Partial<RecordRow>>).map(normalizeRecordRow))
+      await db.conflicts.bulkPut((snapshot.conflicts as Array<Partial<ConflictRow>>).map(normalizeConflictRow))
+    }
+  )
 }
 
 /** 清空全部数据并重新灌入演示数据 */
 export async function resetDatabase(): Promise<void> {
-  await db.transaction('rw', [db.scenes, db.elements, db.shootDays, db.records, db.conflicts], async () => {
-    await Promise.all([
-      db.scenes.clear(),
-      db.elements.clear(),
-      db.shootDays.clear(),
-      db.records.clear(),
-      db.conflicts.clear()
-    ])
-  })
+  await db.transaction(
+    'rw',
+    [db.scenes, db.elements, db.shootDays, db.records, db.conflicts, db.submissions],
+    async () => {
+      await Promise.all([
+        db.scenes.clear(),
+        db.elements.clear(),
+        db.shootDays.clear(),
+        db.records.clear(),
+        db.conflicts.clear(),
+        db.submissions.clear()
+      ])
+    }
+  )
   await seedDatabase()
 }
 
 /** 各表行数统计 */
 export async function countAll(): Promise<Record<string, number>> {
-  const [scenes, elements, shootDays, records, conflicts] = await Promise.all([
+  const [scenes, elements, shootDays, records, conflicts, submissions] = await Promise.all([
     db.scenes.count(),
     db.elements.count(),
     db.shootDays.count(),
     db.records.count(),
-    db.conflicts.count()
+    db.conflicts.count(),
+    db.submissions.count()
   ])
-  return { scenes, elements, shootDays, records, conflicts }
+  return { scenes, elements, shootDays, records, conflicts, submissions }
 }

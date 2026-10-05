@@ -8,7 +8,7 @@ import FilterBar from '@/components/common/FilterBar.vue'
 import StatBadge from '@/components/common/StatBadge.vue'
 import EmptyPanel from '@/components/common/EmptyPanel.vue'
 import ConflictTag from '@/components/common/ConflictTag.vue'
-import { db, countAll, exportSnapshot, importSnapshot, resetDatabase, DB_NAME, DB_SCHEMA_VERSION, type ConflictRow } from '@/utils/db'
+import { db, countAll, exportSnapshot, importSnapshot, resetDatabase, DB_NAME, DB_SCHEMA_VERSION, type ConflictRow, type RecordRow } from '@/utils/db'
 import { useIdbTable } from '@/hooks/useIdbTable'
 import { buildReport, downloadJson, parseReport, riskScore, serializeReport, type ContinuityReport } from '@/utils/export'
 import type { FilterModel } from '@/types/filter'
@@ -18,6 +18,9 @@ const route = useRoute()
 const router = useRouter()
 
 const { rows: conflicts } = useIdbTable<ConflictRow>(() => db.conflicts)
+/** 订阅记录变化：批量合入 / 裁决后自动重建报告小结，保证风险分与差异列表同步 */
+const { rows: records } = useIdbTable<RecordRow>(() => db.records)
+const { rows: submissions } = useIdbTable(() => db.submissions)
 const report = ref<ContinuityReport | null>(null)
 const dbCounts = ref<Record<string, number>>({})
 const filters = ref<FilterModel>({ keyword: '' })
@@ -33,6 +36,8 @@ const totals = computed(() => {
     risk: riskScore(open)
   }
 })
+
+const failedDraftCount = computed(() => submissions.value.filter((item) => item.state === 'failed').length)
 
 const rows = computed(() => {
   const list = report.value?.summary.rows ?? []
@@ -97,6 +102,11 @@ function onFilterChange(next: FilterModel): void {
 onMounted(() => {
   void refresh()
   if (typeof route.query.keyword === 'string') filters.value.keyword = route.query.keyword
+})
+
+/** 批量合入 / 裁决后差异与记录发生变化时，自动重建报告小结与风险分 */
+watch([conflicts, records], () => {
+  void refresh()
 })
 
 watch(filters, (value) => {
@@ -187,6 +197,7 @@ watch(filters, (value) => {
             <el-descriptions-item label="场次/要素">{{ dbCounts.scenes ?? 0 }} / {{ dbCounts.elements ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="拍摄日/记录">{{ dbCounts.shootDays ?? 0 }} / {{ dbCounts.records ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="差异">{{ dbCounts.conflicts ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="提交批次 / 失败草稿">{{ dbCounts.submissions ?? 0 }} / {{ failedDraftCount }}</el-descriptions-item>
             <el-descriptions-item label="导出时间">{{ report?.exportedAt.slice(0, 19).replace('T', ' ') ?? '—' }}</el-descriptions-item>
           </el-descriptions>
           <div class="btn-row">

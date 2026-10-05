@@ -44,7 +44,7 @@ docker compose up -d --build      # 代码改动后重新构建
 | 构建工具 | Vite 6 | 开发服务器端口 22829 |
 | 状态管理 | Pinia（setup store） | `sceneStore` / `elementStore` / `recordStore` / `conflictStore` |
 | 路由 | Vue Router 4（history 模式） | nginx 侧配合 `try_files` 做 SPA fallback |
-| 本地存储 | Dexie 4（IndexedDB 封装） | 库名 `gbcontinuity-db`，含结构版本号与 upgrade 迁移 |
+| 本地存储 | Dexie 4（IndexedDB 封装） | 库名 `gbcontinuity-db`，结构版本 `version(2)`，含 v1→v2 upgrade 迁移（为历史记录补齐修订号、来源标签、生效/待确认/已作废状态，为旧差异补齐来源） |
 | 容器化 | Docker 多阶段构建：`node:20-alpine` → `nginx:alpine` | 构建阶段执行类型检查与打包，运行阶段仅托管静态产物 |
 
 ---
@@ -103,9 +103,12 @@ sologsb101-1029/
 
 ## 六、数据存储说明
 
-- **IndexedDB 库名**：`gbcontinuity-db`（Dexie 封装），结构版本号 `version(1)`，并带 `upgrade()` 迁移逻辑（为历史行补齐行修订号与时间戳）。
-- **分表存储**：`scenes` 场次、`elements` 连戏要素、`shootDays` 拍摄日、`records` 现场记录、`conflicts` 连戏差异，共 5 张表；每行带 `revision` / `createdAt` / `updatedAt`。
+- **IndexedDB 库名**：`gbcontinuity-db`（Dexie 封装），结构版本号 `version(2)`：`version(1)` 为五张业务表的初始结构，`version(2)` 新增现场记录的并发控制字段（`revision` 内容修订号、`source` 来源标签、`status` 生效/待确认/已作废、`duelGroupId`/`duelWinner` 并列裁决、`submissionId` 批次留痕）、差异的 `source` 来源，并新增 `submissions` 提交批次表；升级时逐版本执行 `upgrade()`，历史记录自动补齐修订与来源（标记为「历史导入」、置为生效），旧备份导入同样补齐。
+- **分表存储**：`scenes` 场次、`elements` 连戏要素、`shootDays` 拍摄日、`records` 现场记录、`conflicts` 连戏差异、`submissions` 提交批次（含可重试失败草稿），共 6 张表；每行带 `revision` / `createdAt` / `updatedAt`。
 - **首屏自动播种**：`utils/db.ts` 的 `initDatabase()` 在 `scenes` 表为空时调用 `seedDatabase()`，灌入互相引用的三层演示数据（场次 → 连戏要素 → 拍摄日 → 现场记录 → 差异），其中包含 1 条「阻断 / 待确认」与 1 条「轻微 / 待确认」差异，保证差异页与报告页首次打开就有内容；播种幂等。
+- **带基线修订的批量提交**：同一拍摄日的一组记录在**一个 Dexie 事务**内合入（`utils/batch.ts`）。每条记录携带编辑时基线 `baseRevision`：业务键（拍摄日+要素+镜次）无冲突的单边新增直接合入；库内修订号与基线一致则覆盖修订并 `revision + 1`；两个标签页基于同一旧版本改到同一镜次（基线漂移）时**不覆盖**，两个版本并列「待确认」（共享 `duelGroupId`、各自带来源标签），在现场记录页人工裁决，落败方置「已作废」，胜出方生效。
+- **整组回滚与可重试草稿**：预检、记录写入、差异重算、基准同步任一失败，整组事务回滚不留半批数据；随后用独立事务把整组条目、失败原因、来源写入 `submissions`（`state=failed`），切回该拍摄日页面顶部即可「整组重试 / 装入编辑器调整 / 放弃草稿」，重试成功后草稿转为已合入。
+- **合入后派生数据同步**（`utils/reconcile.ts`，在提交事务内执行）：只对本次触及的要素失效并重建「自动重算」差异（按时间轴最近两条**生效**记录，待确认/已作废版本不参与比对），同一对记录的既有结论与解决留痕沿用；「手工登记」差异永不被替换。无待确认并列、无未决差异的要素，其初始状态（连戏基准）回写为最新生效状态。差异列表、要素基准与报告风险分通过 liveQuery 订阅自动更新，差异页也可手动全量重新比对。
 - **差异算法**：`utils/diff.ts` 对状态文本做归一化（去掉空白与标点、颜色/款式同义写法归组，如「藏青 / 深蓝」视为同一色），归一后仍有差异才生成条目；关键要素的状态变化判为「阻断」，一般要素的状态变化判为「需处理」，仅照片说明 / 镜次变化判为「轻微」。
-- **无后端**：没有 API 服务、没有数据库容器；容器本身无状态，不挂载任何卷。
-- **级联规则**：删除场次会级联删除其要素、现场记录与相关差异；删除拍摄日会删除当日记录与相关差异。
+- **无后端**：没有 API 服务、没有数据库容器；容器本身无状态，不挂载任何卷。多标签页并发属于同一 IndexedDB 下的乐观并发控制（基线修订 + 并列裁决），不依赖服务端锁。
+- **级联规则**：删除场次会级联删除其要素、现场记录、相关差异与提交批次；删除拍摄日会删除当日记录、相关差异与提交批次。

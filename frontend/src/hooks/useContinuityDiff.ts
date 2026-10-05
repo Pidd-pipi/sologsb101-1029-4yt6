@@ -1,14 +1,15 @@
 /**
- * 按要素取最近两次现场记录做字段级比对，派生差异列表与严重程度。
- * 被差异比对页、现场记录页与报告页共同消费。
+ * 按要素取最近两次「生效」现场记录做字段级比对，派生差异列表与严重程度。
+ * 被差异比对页、现场记录页与报告页共同消费；与批次合入后的落库重算共用 timeline 逻辑。
  */
 import { computed, type ComputedRef, type Ref } from 'vue'
 import type { ConflictSeverity } from '@/types/conflict'
 import type { ElementCategory } from '@/types/element'
 import type { ShootDayRow, ElementRow, RecordRow } from '@/utils/db'
-import { describeDiffs, diffRecords, severityOf, sortBySeverity, type FieldDiff } from '@/utils/diff'
+import { candidatesForElements } from '@/utils/timeline'
+import { diffRecords, describeDiffs, severityOf, sortBySeverity, type FieldDiff } from '@/utils/diff'
 
-/** 一条候选差异：同一要素最近两次记录之间的比对结果 */
+/** 一条候选差异：同一要素最近两次生效记录之间的比对结果 */
 export interface DiffCandidate {
   elementId: string
   elementName: string
@@ -38,19 +39,8 @@ export interface ContinuityDiffResult {
   countByScene: (sceneId: string) => number
 }
 
-/** 记录时间轴：先按拍摄日日期，再按镜次排序 */
-function buildTimeline(records: RecordRow[], shootDays: ShootDayRow[]): RecordRow[] {
-  const dateOf = (record: RecordRow): string =>
-    shootDays.find((day) => day.id === record.shootDayId)?.date ?? ''
-  return [...records].sort(
-    (a, b) =>
-      dateOf(a).localeCompare(dateOf(b)) ||
-      a.takeNo.localeCompare(b.takeNo, 'zh-Hans-CN')
-  )
-}
-
 /**
- * @param records    全部现场记录
+ * @param records    全部现场记录（含待确认/已作废版本，内部会过滤）
  * @param elements   全部连戏要素
  * @param shootDays  全部拍摄日（用于把记录排到时间轴上）
  */
@@ -61,15 +51,17 @@ export function useContinuityDiff(
 ): ContinuityDiffResult {
   const candidates = computed<DiffCandidate[]>(() => {
     const result: DiffCandidate[] = []
-    elements.value.forEach((element) => {
-      const own = buildTimeline(
-        records.value.filter((record) => record.elementId === element.id),
-        shootDays.value
-      )
-      if (own.length < 2) return
-      const a = own[own.length - 2]
-      const b = own[own.length - 1]
-      const diffs = diffRecords(a, b)
+    const rawCandidates = candidatesForElements(
+      elements.value.map((item) => item.id),
+      records.value,
+      elements.value,
+      shootDays.value
+    )
+    rawCandidates.forEach((candidate) => {
+      const element = elements.value.find((item) => item.id === candidate.elementId)
+      if (!element) return
+      // 重新计算字段级明细，供页面并排展示
+      const diffs = diffRecords(candidate.a, candidate.b)
       const severity = severityOf(diffs, element.critical)
       if (!severity) return
       result.push({
@@ -79,8 +71,8 @@ export function useContinuityDiff(
         owner: element.owner,
         critical: element.critical,
         sceneId: element.sceneId,
-        a,
-        b,
+        a: candidate.a,
+        b: candidate.b,
         diffs,
         severity,
         desc: describeDiffs(diffs)
