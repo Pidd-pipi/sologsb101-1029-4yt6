@@ -43,6 +43,8 @@ export interface ContinuityReport {
     openConflictCount: number
     blockedConflictCount: number
     resolvedConflictCount: number
+    /** 两个标签页分叉后并列待确认的记录版本数 */
+    pendingVersionCount: number
     /** 未解决冲突最多的场次 */
     riskiestSceneNo: string
     rows: SceneReportRow[]
@@ -93,6 +95,7 @@ export async function buildReport(): Promise<ContinuityReport> {
   )[0]
 
   const openConflicts = conflicts.filter((item) => item.state === '待确认')
+  const pendingVersionCount = records.filter((item) => item.status === '待确认').length
 
   return {
     name: DB_NAME,
@@ -106,10 +109,11 @@ export async function buildReport(): Promise<ContinuityReport> {
     summary: {
       sceneCount: scenes.length,
       elementCount: elements.length,
-      recordCount: records.length,
+      recordCount: records.filter((item) => item.status !== '已废弃').length,
       openConflictCount: openConflicts.length,
       blockedConflictCount: openConflicts.filter((item) => item.severity === '阻断').length,
       resolvedConflictCount: conflicts.filter((item) => item.state === '已解决').length,
+      pendingVersionCount,
       riskiestSceneNo: riskiest ? riskiest.sceneNo : '—',
       rows
     }

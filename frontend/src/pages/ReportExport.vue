@@ -8,7 +8,18 @@ import FilterBar from '@/components/common/FilterBar.vue'
 import StatBadge from '@/components/common/StatBadge.vue'
 import EmptyPanel from '@/components/common/EmptyPanel.vue'
 import ConflictTag from '@/components/common/ConflictTag.vue'
-import { db, countAll, exportSnapshot, importSnapshot, resetDatabase, DB_NAME, DB_SCHEMA_VERSION, type ConflictRow } from '@/utils/db'
+import {
+  db,
+  countAll,
+  exportSnapshot,
+  importSnapshot,
+  resetDatabase,
+  DB_NAME,
+  DB_SCHEMA_VERSION,
+  type ConflictRow,
+  type RecordDraftRow,
+  type RecordRow
+} from '@/utils/db'
 import { useIdbTable } from '@/hooks/useIdbTable'
 import { buildReport, downloadJson, parseReport, riskScore, serializeReport, type ContinuityReport } from '@/utils/export'
 import type { FilterModel } from '@/types/filter'
@@ -18,6 +29,8 @@ const route = useRoute()
 const router = useRouter()
 
 const { rows: conflicts } = useIdbTable<ConflictRow>(() => db.conflicts)
+const { rows: records } = useIdbTable<RecordRow>(() => db.records)
+const { rows: drafts } = useIdbTable<RecordDraftRow>(() => db.recordDrafts)
 const report = ref<ContinuityReport | null>(null)
 const dbCounts = ref<Record<string, number>>({})
 const filters = ref<FilterModel>({ keyword: '' })
@@ -30,6 +43,8 @@ const totals = computed(() => {
     open: open.length,
     resolved: conflicts.value.filter((item) => item.state === '已解决').length,
     blocking: open.filter((item) => item.severity === '阻断').length,
+    pendingVersions: records.value.filter((item) => item.status === '待确认').length,
+    drafts: drafts.value.length,
     risk: riskScore(open)
   }
 })
@@ -99,6 +114,11 @@ onMounted(() => {
   if (typeof route.query.keyword === 'string') filters.value.keyword = route.query.keyword
 })
 
+// 批量提交合入 / 并列版本裁定后，差异列表与风险分已重算：小结表格与 JSON 预览同步刷新
+watch([conflicts, records, drafts], () => {
+  void refresh()
+}, { deep: false })
+
 watch(filters, (value) => {
   void router.replace({ path: route.path, query: filtersToQuery(value) })
 }, { deep: true })
@@ -125,6 +145,8 @@ watch(filters, (value) => {
       <StatBadge label="未解决" :value="totals.open" suffix="条" icon="WarningFilled" tone="danger" />
       <StatBadge label="已解决" :value="totals.resolved" suffix="条" icon="Grid" tone="success" />
       <StatBadge label="阻断级" :value="totals.blocking" suffix="条" icon="WarningFilled" tone="warning" />
+      <StatBadge label="并列待确认版本" :value="totals.pendingVersions" suffix="版" icon="WarningFilled" tone="warning" />
+      <StatBadge label="待重试草稿" :value="totals.drafts" suffix="组" icon="Files" tone="danger" />
       <StatBadge label="风险分" :value="totals.risk" suffix="分" icon="TrendCharts" tone="info" />
     </div>
 
@@ -187,6 +209,7 @@ watch(filters, (value) => {
             <el-descriptions-item label="场次/要素">{{ dbCounts.scenes ?? 0 }} / {{ dbCounts.elements ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="拍摄日/记录">{{ dbCounts.shootDays ?? 0 }} / {{ dbCounts.records ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="差异">{{ dbCounts.conflicts ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="待重试草稿">{{ dbCounts.recordDrafts ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="导出时间">{{ report?.exportedAt.slice(0, 19).replace('T', ' ') ?? '—' }}</el-descriptions-item>
           </el-descriptions>
           <div class="btn-row">

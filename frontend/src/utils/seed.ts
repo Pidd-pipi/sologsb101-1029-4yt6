@@ -4,14 +4,27 @@
  * 并预留 1 条「阻断/待确认」与 1 条「轻微/待确认」差异，保证差异页与报告页有内容可看。
  */
 import type { SceneRow, ElementRow, ShootDayRow, RecordRow, ConflictRow } from './db'
-import { db, ROW_REVISION } from './db'
+import { db } from './db'
+import { SOURCE_SEED } from './source'
+import type { Record as ContinuityRecord } from '../types/record'
 
-function rev<T>(row: T): T & { revision: number; createdAt: number; updatedAt: number } {
+/** 播种数据在 rev() 时补齐行级元数据 */
+type SeedInput<T extends { revision: number; createdAt: number; updatedAt: number; source: string }> = Omit<
+  T,
+  'revision' | 'createdAt' | 'updatedAt' | 'source'
+>
+
+function rev<T>(row: T): T & { revision: number; createdAt: number; updatedAt: number; source: string } {
   const now = Date.now()
-  return { ...row, revision: ROW_REVISION, createdAt: now, updatedAt: now }
+  return { ...row, revision: 1, createdAt: now, updatedAt: now, source: SOURCE_SEED }
 }
 
-const SCENES: Array<Omit<SceneRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
+/** 播种用现场记录补齐 v2 修订状态字段 */
+function seededRecord(row: Omit<ContinuityRecord, 'status' | 'versionGroup' | 'source'>): RecordRow {
+  return rev({ ...row, status: '生效', versionGroup: '' })
+}
+
+const SCENES: SeedInput<SceneRow>[] = [
   {
     id: 'sc-001',
     sceneNo: '12A',
@@ -44,7 +57,7 @@ const SCENES: Array<Omit<SceneRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
   }
 ]
 
-const ELEMENTS: Array<Omit<ElementRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
+const ELEMENTS: SeedInput<ElementRow>[] = [
   {
     id: 'el-001',
     sceneId: 'sc-001',
@@ -101,7 +114,7 @@ const ELEMENTS: Array<Omit<ElementRow, 'revision' | 'createdAt' | 'updatedAt'>> 
   }
 ]
 
-const SHOOT_DAYS: Array<Omit<ShootDayRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
+const SHOOT_DAYS: SeedInput<ShootDayRow>[] = [
   {
     id: 'sd-001',
     date: '2024-05-06',
@@ -128,19 +141,19 @@ const SHOOT_DAYS: Array<Omit<ShootDayRow, 'revision' | 'createdAt' | 'updatedAt'
   }
 ]
 
-const RECORDS: Array<Omit<RecordRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
-  { id: 'rec-001', shootDayId: 'sd-001', elementId: 'el-001', sceneId: 'sc-001', takeNo: '3/1', currentState: '深蓝风衣，第二颗扣子缺失', photoNote: '正面全身', recordedBy: '苏晚' },
-  { id: 'rec-002', shootDayId: 'sd-001', elementId: 'el-002', sceneId: 'sc-001', takeNo: '3/1', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写', recordedBy: '苏晚' },
-  { id: 'rec-003', shootDayId: 'sd-001', elementId: 'el-003', sceneId: 'sc-001', takeNo: '3/1', currentState: '低盘发，右侧留碎发', photoNote: '侧脸发际', recordedBy: '苏晚' },
-  { id: 'rec-004', shootDayId: 'sd-002', elementId: 'el-001', sceneId: 'sc-001', takeNo: '7/2', currentState: '深蓝风衣，第三颗扣子缺失', photoNote: '正面全身（补）', recordedBy: '苏晚' },
-  { id: 'rec-005', shootDayId: 'sd-002', elementId: 'el-002', sceneId: 'sc-001', takeNo: '7/2', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写（第二次）', recordedBy: '苏晚' },
-  { id: 'rec-006', shootDayId: 'sd-002', elementId: 'el-003', sceneId: 'sc-001', takeNo: '7/2', currentState: '高马尾，无碎发', photoNote: '侧脸发际', recordedBy: '苏晚' },
-  { id: 'rec-007', shootDayId: 'sd-002', elementId: 'el-006', sceneId: 'sc-003', takeNo: '7/5', currentState: '全家福相框右下角卷边', photoNote: '墙面全景', recordedBy: '苏晚' },
-  { id: 'rec-008', shootDayId: 'sd-003', elementId: 'el-004', sceneId: 'sc-002', takeNo: '9/1', currentState: '编号 A-17 木箱，右上角有破损', photoNote: '木箱标识', recordedBy: '苏晚' },
-  { id: 'rec-009', shootDayId: 'sd-003', elementId: 'el-005', sceneId: 'sc-002', takeNo: '9/1', currentState: '深灰夹克，左袖有油污', photoNote: '男主半身', recordedBy: '苏晚' }
+const RECORDS: RecordRow[] = [
+  seededRecord({ id: 'rec-001', shootDayId: 'sd-001', elementId: 'el-001', sceneId: 'sc-001', takeNo: '3/1', currentState: '深蓝风衣，第二颗扣子缺失', photoNote: '正面全身', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-002', shootDayId: 'sd-001', elementId: 'el-002', sceneId: 'sc-001', takeNo: '3/1', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-003', shootDayId: 'sd-001', elementId: 'el-003', sceneId: 'sc-001', takeNo: '3/1', currentState: '低盘发，右侧留碎发', photoNote: '侧脸发际', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-004', shootDayId: 'sd-002', elementId: 'el-001', sceneId: 'sc-001', takeNo: '7/2', currentState: '深蓝风衣，第三颗扣子缺失', photoNote: '正面全身（补）', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-005', shootDayId: 'sd-002', elementId: 'el-002', sceneId: 'sc-001', takeNo: '7/2', currentState: '铜制台灯，灯罩左下有裂纹', photoNote: '台灯特写（第二次）', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-006', shootDayId: 'sd-002', elementId: 'el-003', sceneId: 'sc-001', takeNo: '7/2', currentState: '高马尾，无碎发', photoNote: '侧脸发际', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-007', shootDayId: 'sd-002', elementId: 'el-006', sceneId: 'sc-003', takeNo: '7/5', currentState: '全家福相框右下角卷边', photoNote: '墙面全景', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-008', shootDayId: 'sd-003', elementId: 'el-004', sceneId: 'sc-002', takeNo: '9/1', currentState: '编号 A-17 木箱，右上角有破损', photoNote: '木箱标识', recordedBy: '苏晚' }),
+  seededRecord({ id: 'rec-009', shootDayId: 'sd-003', elementId: 'el-005', sceneId: 'sc-002', takeNo: '9/1', currentState: '深灰夹克，左袖有油污', photoNote: '男主半身', recordedBy: '苏晚' })
 ]
 
-const CONFLICTS: Array<Omit<ConflictRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
+const CONFLICTS: SeedInput<ConflictRow>[] = [
   {
     id: 'cf-001',
     elementId: 'el-001',
@@ -182,7 +195,7 @@ export async function seedDatabase(): Promise<void> {
     await db.scenes.bulkPut(SCENES.map(rev))
     await db.elements.bulkPut(ELEMENTS.map(rev))
     await db.shootDays.bulkPut(SHOOT_DAYS.map(rev))
-    await db.records.bulkPut(RECORDS.map(rev))
+    await db.records.bulkPut(RECORDS)
     await db.conflicts.bulkPut(CONFLICTS.map(rev))
   })
 }

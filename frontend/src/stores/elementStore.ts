@@ -6,7 +6,7 @@ import { ref } from 'vue'
 import type { LocationQuery } from 'vue-router'
 import type { Element } from '@/types/element'
 import type { FilterModel } from '@/types/filter'
-import { putElement, removeElement, updateElement as updateElementRow, ROW_REVISION } from '@/utils/db'
+import { putElement, removeElement, updateElement as updateElementRow, stampRow } from '@/utils/db'
 import { createId } from '@/utils/uuid'
 import { queryToFilters } from '@/utils/query'
 
@@ -33,9 +33,8 @@ export const useElementStore = defineStore('element', () => {
   }
 
   async function createElement(payload: Omit<Element, 'id'>): Promise<string> {
-    const now = Date.now()
     const id = createId('element')
-    await putElement({ ...payload, id, revision: ROW_REVISION, createdAt: now, updatedAt: now })
+    await putElement(stampRow({ ...payload, id }))
     selectedElementId.value = id
     return id
   }

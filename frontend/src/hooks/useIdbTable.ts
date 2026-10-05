@@ -6,6 +6,7 @@ import { liveQuery } from 'dexie'
 import { onScopeDispose, ref, shallowRef, type Ref } from 'vue'
 import { db, ROW_REVISION } from '@/utils/db'
 import { createId } from '@/utils/uuid'
+import { currentSource } from '@/utils/source'
 
 export type IdbRecord = { id: string; createdAt?: number; updatedAt?: number }
 
@@ -76,7 +77,8 @@ export function useIdbTable<T extends IdbRecord>(
       id: payload.id ?? createId(idPrefix),
       revision: ROW_REVISION,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      source: currentSource()
     } as unknown as T
     await table.put(record)
     return record

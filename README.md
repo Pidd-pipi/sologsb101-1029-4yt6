@@ -67,7 +67,7 @@ npm run preview    # 本地预览构建产物（http://localhost:22829）
 | --- | --- | --- | --- |
 | `/scenes` | 剧本场次与拍摄顺序台账 | Scene、Conflict | 新建/编辑/删除场次、**拖拽调序并自动重编号**、按内外景与日/夜筛选、卡片回显要素数与未解决冲突数、筛选同步 URL query |
 | `/elements` | 连戏要素登记 | Element、Scene | 按场次与类别分组展示、维护初始状态与责任人、关键要素标记与高亮、增删改 |
-| `/shootdays` | 现场状态记录 | ShootDay、Record、Element | 建立拍摄日并勾选当日场次、按镜次逐条录入当前状态与照片说明、同要素保留历次快照、记录差异角标 |
+| `/shootdays` | 现场状态记录 | ShootDay、Record、Element | 建立拍摄日并勾选当日场次、按镜次录入当前状态与照片说明；**同一拍摄日一组记录先入提交盘，再带基线修订整组提交**，多标签页改到同一镜次时并列待确认、单边新增直接合入，写入失败整组回滚并留可重试草稿 |
 | `/conflicts` | 连戏差异比对与冲突提示 | Conflict、Record | **重新比对生成差异**、并排展示记录 A / 记录 B、严重程度与解决状态流转、解决后回写要素初始状态并留痕 |
 | `/report` | 连戏核对报告与结构版本导出 | 全部模型 | 场次核对小结、风险分统计、本地库版本查看、报告 / 整库 JSON 导出与导入 |
 
@@ -93,7 +93,7 @@ sologsb101-1029/
         ├── stores/             # sceneStore elementStore recordStore conflictStore
         ├── components/common/  # ConflictTag.vue FilterBar.vue StatBadge.vue EmptyPanel.vue
         ├── hooks/              # useContinuityDiff.ts useIdbTable.ts
-        ├── utils/              # diff.ts db.ts export.ts seed.ts uuid.ts query.ts
+        ├── utils/              # diff.ts db.ts export.ts seed.ts uuid.ts query.ts recordBatch.ts source.ts
         ├── pages/              # SceneList ElementRegistry ShootDayLog ConflictBoard ReportExport
         ├── styles/main.css
         └── router/index.ts
@@ -103,8 +103,12 @@ sologsb101-1029/
 
 ## 六、数据存储说明
 
-- **IndexedDB 库名**：`gbcontinuity-db`（Dexie 封装），结构版本号 `version(1)`，并带 `upgrade()` 迁移逻辑（为历史行补齐行修订号与时间戳）。
-- **分表存储**：`scenes` 场次、`elements` 连戏要素、`shootDays` 拍摄日、`records` 现场记录、`conflicts` 连戏差异，共 5 张表；每行带 `revision` / `createdAt` / `updatedAt`。
+- **IndexedDB 库名**：`gbcontinuity-db`，当前结构版本号 `version(2)`，并带 `upgrade()` 迁移逻辑：
+  - v1：五张业务表，每行带 `revision` / `createdAt` / `updatedAt`；
+  - v2：现场记录增加 `status`（生效 / 待确认 / 已废弃）、`versionGroup`（并列版本组）、`source`（写入来源），全部业务行补齐来源留痕，新增 `recordDrafts` 失败可重试草稿表。旧数据升级后状态为「生效」、来源标「历史数据」，切回拍摄日仍可核对修订号与来源。
+- **分表存储**：`scenes` 场次、`elements` 连戏要素、`shootDays` 拍摄日、`records` 现场记录、`conflicts` 连戏差异，共 5 张业务表 + `recordDrafts` 待重试草稿表；每行带 `revision` / `createdAt` / `updatedAt` / `source`。
+- **批量提交与并发控制**：同一拍摄日的记录先进页面提交盘，点「整组提交」时在单个 IndexedDB 事务内完成「基线校验 + 写入 + 差异重算 + 基准同步」，任一写入失败整组回滚（不留半批数据）并把整组条目落 `recordDrafts`，可修好后一键重试。修改携带打开编辑时的基线修订号：另一标签页已抢先保存且内容分叉时，两个版本都转为「待确认」并编入同一 `versionGroup`（支持采纳 / 废弃裁定）；内容一致或单边新增则直接合入，修订号 +1。
+- **合入后联动重算**：批量合入或版本裁定后，受影响要素的旧差异全部失效，按最近两次「生效」记录重新比对；该要素已无待确认差异时，连戏要素基准（`initialState`）自动对齐最近一次生效状态，差异列表与报告页风险分（对 `conflicts` 表的 liveQuery）响应式同步。
 - **首屏自动播种**：`utils/db.ts` 的 `initDatabase()` 在 `scenes` 表为空时调用 `seedDatabase()`，灌入互相引用的三层演示数据（场次 → 连戏要素 → 拍摄日 → 现场记录 → 差异），其中包含 1 条「阻断 / 待确认」与 1 条「轻微 / 待确认」差异，保证差异页与报告页首次打开就有内容；播种幂等。
 - **差异算法**：`utils/diff.ts` 对状态文本做归一化（去掉空白与标点、颜色/款式同义写法归组，如「藏青 / 深蓝」视为同一色），归一后仍有差异才生成条目；关键要素的状态变化判为「阻断」，一般要素的状态变化判为「需处理」，仅照片说明 / 镜次变化判为「轻微」。
 - **无后端**：没有 API 服务、没有数据库容器；容器本身无状态，不挂载任何卷。

@@ -6,7 +6,7 @@ import { ref } from 'vue'
 import type { LocationQuery } from 'vue-router'
 import type { Scene } from '@/types/scene'
 import type { FilterModel } from '@/types/filter'
-import { nextShootOrder, putScene, removeScene, reorderScenes, updateScene as updateSceneRow, ROW_REVISION } from '@/utils/db'
+import { nextShootOrder, putScene, removeScene, reorderScenes, updateScene as updateSceneRow, stampRow } from '@/utils/db'
 import { createId } from '@/utils/uuid'
 import { queryToFilters } from '@/utils/query'
 
@@ -33,10 +33,9 @@ export const useSceneStore = defineStore('scene', () => {
   }
 
   async function createScene(payload: Omit<Scene, 'id' | 'shootOrder'>): Promise<string> {
-    const now = Date.now()
     const id = createId('scene')
     const shootOrder = await nextShootOrder()
-    await putScene({ ...payload, id, shootOrder, revision: ROW_REVISION, createdAt: now, updatedAt: now })
+    await putScene(stampRow({ ...payload, id, shootOrder }))
     selectedSceneId.value = id
     return id
   }

@@ -38,15 +38,17 @@ export interface ContinuityDiffResult {
   countByScene: (sceneId: string) => number
 }
 
-/** 记录时间轴：先按拍摄日日期，再按镜次排序 */
+/** 记录时间轴：先按拍摄日日期，再按镜次排序；并列待确认 / 已废弃版本不参与比对 */
 function buildTimeline(records: RecordRow[], shootDays: ShootDayRow[]): RecordRow[] {
   const dateOf = (record: RecordRow): string =>
     shootDays.find((day) => day.id === record.shootDayId)?.date ?? ''
-  return [...records].sort(
-    (a, b) =>
-      dateOf(a).localeCompare(dateOf(b)) ||
-      a.takeNo.localeCompare(b.takeNo, 'zh-Hans-CN')
-  )
+  return records
+    .filter((record) => record.status === '生效')
+    .sort(
+      (a, b) =>
+        dateOf(a).localeCompare(dateOf(b)) ||
+        a.takeNo.localeCompare(b.takeNo, 'zh-Hans-CN')
+    )
 }
 
 /**

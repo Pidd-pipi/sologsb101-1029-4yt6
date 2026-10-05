@@ -7,7 +7,7 @@ import type { LocationQuery } from 'vue-router'
 import type { Conflict } from '@/types/conflict'
 import type { FilterModel } from '@/types/filter'
 import type { ConflictRow } from '@/utils/db'
-import { putConflict, removeConflict, reopenConflict, resolveConflict, saveConflicts, ROW_REVISION } from '@/utils/db'
+import { putConflict, removeConflict, reopenConflict, resolveConflict, saveConflicts, stampRow } from '@/utils/db'
 import { createId } from '@/utils/uuid'
 import { queryToFilters } from '@/utils/query'
 import type { DiffCandidate } from '@/hooks/useContinuityDiff'
@@ -32,21 +32,22 @@ export const useConflictStore = defineStore('conflict', () => {
 
   /** 由比对候选生成差异条目（已存在的同一对记录不会重复生成） */
   async function generate(candidates: DiffCandidate[]): Promise<number> {
-    const now = Date.now()
-    const rows: ConflictRow[] = candidates.map((item) => ({
-      id: createId('conflict'),
-      elementId: item.elementId,
-      recordIdA: item.a.id,
-      recordIdB: item.b.id,
-      diffDesc: item.desc,
-      severity: item.severity,
-      state: '待确认',
-      resolvedNote: '',
-      resolvedAt: '',
-      revision: ROW_REVISION,
-      createdAt: now,
-      updatedAt: now
-    }))
+    const rows: ConflictRow[] = candidates.map((item) =>
+      stampRow(
+        {
+          id: createId('conflict'),
+          elementId: item.elementId,
+          recordIdA: item.a.id,
+          recordIdB: item.b.id,
+          diffDesc: item.desc,
+          severity: item.severity,
+          state: '待确认',
+          resolvedNote: '',
+          resolvedAt: ''
+        },
+        '自动比对'
+      )
+    )
     const created = await saveConflicts(rows)
     lastGenerated.value = created
     return created
@@ -54,17 +55,15 @@ export const useConflictStore = defineStore('conflict', () => {
 
   /** 手工登记一条差异（用于现场口头发现的偏差） */
   async function createManual(payload: Omit<Conflict, 'id' | 'resolvedNote' | 'resolvedAt'>): Promise<string> {
-    const now = Date.now()
     const id = createId('conflict')
-    await putConflict({
-      ...payload,
-      id,
-      resolvedNote: '',
-      resolvedAt: '',
-      revision: ROW_REVISION,
-      createdAt: now,
-      updatedAt: now
-    })
+    await putConflict(
+      stampRow({
+        ...payload,
+        id,
+        resolvedNote: '',
+        resolvedAt: ''
+      })
+    )
     return id
   }
 
